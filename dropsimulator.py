@@ -54,6 +54,12 @@ def main():
         except ValueError:
             pass
 
+        levelStr = 'level' + {'N':'','NM':'(N)','H':'(H)'}[difficulty]
+        if levelStr not in mon:
+            level = int(input('Monster level missing in data (TODO: dervie from area). What is the level: '))
+            mon[levelStr] = level
+
+        print('Doing drops for %s (%s)' % (mon['name'], difficulty))
         lastProgress = 0
         for i in range(0, N):
             progress = int(100 * i / N + 0.00001)
@@ -92,7 +98,7 @@ def displayUniques(collection, fname):
     dumpRawCountedDict(collection, 6, fname, lambda id: id)
 
 def displayRunes():
-    dumpRawCountedDict(runeCollection, 6, 'runes.csv', lambda id: items[id]['name'])
+    dumpRawCountedDict(runeCollection, 6, 'runes.csv', lambda id: ('%s (%s)' % (items[id]['name'], id)))
 
 def __displayRawHelper(tple):
     id, rarity = tple
@@ -153,13 +159,13 @@ def dropTC(itemOrTC, mlvl, mf, players, nearbyPlayers, maxItemDrops=6, chanceMod
         idx = 0
         count = 0
         while picks < 0 and maxItemDrops > 0:
-            picks += 1
             (item, weight) = tc['items'][idx]
             if count >= weight:
                 idx += 1
                 count = 0
                 continue
             maxItemDrops = dropTC(item, mlvl, mf, players, nearbyPlayers, maxItemDrops, chanceModTC, tc)
+            picks += 1
             count += 1
         return maxItemDrops
 
@@ -399,7 +405,9 @@ def loadSuperUniques(f):
     global monsters
     for row in readCSV(f):
         monsters.append({'id': row['Superunique'], 'name': row['Name'],
-            'tc1': row['TC'], 'tc1(N)': row['TC(N)'], 'tc1(H)': row['TC(H)']})
+            'tc1': row['TC'], 'tc2': row['TC'], 'tc3': row['TC'], 'tc4': row['TC'],
+            'tc1(N)': row['TC(N)'], 'tc2(N)': row['TC(N)'], 'tc3(N)': row['TC(N)'], 'tc4(N)': row['TC(N)'],
+            'tc1(H)': row['TC(H)'], 'tc2(H)': row['TC(H)'], 'tc3(H)': row['TC(H)'], 'tc4(H)': row['TC(H)']})
 
 def loadTCs(f):
     global treasureClasses
