@@ -13,7 +13,7 @@ itemRatios = {} # map of (version, exceptionalOrElite, classSpecific) -> (dict k
 uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight, unique_id
 setItems = [] # list of set items: id (@items.id), name, ilvl, weight, unique_id
 
-allDrops = defaultdict(int) # (identifier, rarity) -> number of times dropped [identifier is item['id'] unless the item is unique/set in which case it is item['unique_id']]
+allDrops = defaultdict(int) # (id, rarity) -> number of times dropped [identifier is item['id']]
 collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
 collectedSetItems = defaultdict(int) # item['unique_id'] -> number of times dropped
 runeCollection = defaultdict(int) # item['id'] -> number of times dropped
@@ -23,33 +23,48 @@ def main():
     vanillaTxtDir = 'D:\\Diablo2Modding\\vanilla_excel\\'
     loadAll(modDir, vanillaTxtDir)
 
-    mon = selectDropSource()
-    difficulty = 'H'
-    tmp = input('Difficulty (one of: N(ormal), NM(are), H(ell)) [default=H]: ').upper()
-    if tmp in ['N', 'NM', 'H']:
-        difficulty = tmp
-    dropType = 'u'
-    tmp = input('Monster type (one of n(ormal), c(hampion), u(nique), q(uest unique)) [default=u]: ').lower()
-    if tmp in ['n', 'u', 'c', 'q']:
-        dropType = tmp
-    mf = 0
-    try:
-        mf = int(input('Magic Find % (default = 0): '))
-    except ValueError:
-        pass
-    players = 1
-    try:
-        players = int(input('Number of Players in game (default=1): '))
-    except ValueError:
-        pass
-    nearbyPlayers = 0
-    try:
-        nearbyPlayers = int(input('Number of Players in your party, nearby (default=0): '))
-    except ValueError:
-        pass
+    while True:
+        mon = selectDropSource()
+        difficulty = 'H'
+        tmp = input('Difficulty (one of: N(ormal), NM(are), H(ell)) [default=H]: ').upper()
+        if tmp in ['N', 'NM', 'H']:
+            difficulty = tmp
+        dropType = 'u'
+        tmp = input('Monster type (one of n(ormal), c(hampion), u(nique), q(uest unique)) [default=u]: ').lower()
+        if tmp in ['n', 'u', 'c', 'q']:
+            dropType = tmp
+        mf = 0
+        try:
+            mf = int(input('Magic Find % (default = 0): '))
+        except ValueError:
+            pass
+        players = 1
+        try:
+            players = int(input('Number of Players in game (default=1): '))
+        except ValueError:
+            pass
+        nearbyPlayers = 0
+        try:
+            nearbyPlayers = int(input('Number of Players in your party, nearby (default=0): '))
+        except ValueError:
+            pass
+        N = 10000
+        try:
+            N = int(input('Number of kills (default=10000): '))
+        except ValueError:
+            pass
 
-    for i in range(0, 5):
-        dropFromSource(mon, dropType, difficulty, mf, players, nearbyPlayers)
+        lastProgress = 0
+        for i in range(0, N):
+            progress = int(100 * i / N + 0.00001)
+            if progress >= lastProgress + 10:
+                print('%d%% done' % progress)
+                lastProgress = progress
+            dropFromSource(mon, dropType, difficulty, mf, players, nearbyPlayers)
+        
+        answer = input('Finished. Kill more monsters? (y/n) ')
+        if answer != 'y':
+            break
     
     displayCollection()
 
@@ -72,7 +87,7 @@ def displayUniques(collection, fname):
     missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection]
     print('Collected: %d%%.' % int(collectedPct * 100))
     if collectedPct > 0.8:
-        print('Missin:', ', '.join(missing))
+        print('Missing:', ', '.join(missing))
     print('\nRaw stats (CSV):')
     dumpRawCountedDict(collection, 6, fname, lambda id: id)
 
@@ -81,18 +96,18 @@ def displayRunes():
 
 def __displayRawHelper(tple):
     id, rarity = tple
-    if rarity in ['unique', 'set']:
-        return '%s (%s)' % (id, rarity)
+    #if rarity in ['unique', 'set']:
+        #return '%s (%s)' % (items[id], rarity)
     return '%s (%s)' % (items[id]['name'], rarity)
 
 def displayRaw():
-    dumpRawCountedDict(allDrops, 8, 'all_drops.csv', __displayRawHelper)
+    dumpRawCountedDict(allDrops, 6, 'all_drops.csv', __displayRawHelper)
 
 def dumpRawCountedDict(d, breakEvery, fname, nameFn):
     print('In %s' % fname)
     f = open(fname, 'w')
     f.write('sep=\\t\n')
-    keys = dict(sorted(d.items(), key=lambda item: item[1]))
+    keys = dict(sorted(d.items(), key=lambda item: item[1], reverse=True))
     lineBreak = 1
     for key in keys:
         f.write('%s: %d' % (nameFn(key), d[key]))
@@ -103,8 +118,6 @@ def dumpRawCountedDict(d, breakEvery, fname, nameFn):
     f.close()
 
 def dropFromSource(monster, dropType, difficulty, mf, players, nearbyPlayers):
-    print('Drops from %s (id: %s):' % (monster['name'], monster['id']))
-    print('-----------------------------------')
     diff = {'N':'','NM':'(N)','H':'(H)'}[difficulty]
     tc = 'tc' + str({'n':1,'c':2,'u':3,'q':4}[dropType]) + diff
     mlvl = monster['level' + diff]
@@ -186,7 +199,8 @@ def dropItem(itemStr, mlvl, TC, mf, players, nearbyPlayers, chanceModTC):
     global runeCollection
 
     identifier = item['unique_id'] if rarity in ['unique', 'set'] else item['id']
-    allDrops[(identifier, rarity)] += 1
+    #allDrops[(identifier, rarity)] += 1
+    allDrops[(item['id'], rarity)] += 1
     if rarity == 'unique':
         collectedUniques[identifier] += 1
     elif rarity == 'set':
@@ -195,7 +209,7 @@ def dropItem(itemStr, mlvl, TC, mf, players, nearbyPlayers, chanceModTC):
         runeCollection[item['id']] += 1
 
 def rollRarity(item, mlvl, TC, mf, chanceModTC):
-    if not (TC['id'].startswith('weap') or TC['id'].startswith('armo')):
+    if not canHaveRarity(item, TC):
         return ('normal', item)
     highDurability = False
     if testRarity('unique', mlvl, item, mf, chanceModTC):
@@ -217,7 +231,7 @@ def rollRarity(item, mlvl, TC, mf, chanceModTC):
     return ('low', item)
 
 def testRarity(rarity, mlvl, item, mf, chanceModTC):
-    upped = item['id'] in [item['exceptionalid'], item['eliteid']]
+    upped = ('exceptionalid' in item) and (item['id'] in [item['exceptionalid'], item['eliteid']])
     classSpecific = isClassSpecificType(item['type'])
     ratios = itemRatios[(True, upped, classSpecific)]
     quality = ratios[rarity]
@@ -262,6 +276,14 @@ def upgradeToRarity(item, ilvl, rarity):
             return db[i]
         offset += weight
 
+def canHaveRarity(item, TC):
+    if (TC['id'].startswith('weap') or TC['id'].startswith('armo')):
+        return True
+    # Misc items that can be unique
+    if item['type'] in ['amul', 'ring', 'scha', 'mcha', 'lcha', 'jewl']:
+        return True
+    return False
+
 def isClassSpecificType(itemType):
     classSpecifics = [
         'phlm', # barb helmet
@@ -289,7 +311,7 @@ def selectDropSource():
         if len(options) == 0:
             print('Error: no match.')
         elif len(options) == 1:
-            monId = monster['id']
+            mon = options[0]
         else:
             while mon == None:
                 print('Multiple matches. Choose one:')
@@ -366,7 +388,7 @@ def loadMonsters(f):
 
 def loadUniques(f, listToAddTo):
     for row in readCSV(f):
-        if len(row['lvl']) == 0:
+        if len(row['lvl']) == 0 or row['lvl'] == '0':
             continue
         if 'code' in row:
             listToAddTo.append({'id': row['code'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity']), 'unique_id': row['index']})
