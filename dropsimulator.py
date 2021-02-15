@@ -4,13 +4,19 @@
 import csv
 import random
 import re
+from collections import defaultdict
 
 items = {} # map of id -> (dict keys:) id, name, ilvl, type, normalid, exceptionalid, eliteid
 monsters = [] # (dict keys:) id, name, tc1-4[e|(N)|(H)], level
 TCs = {} # map of id -> (dict keys:) id, group, level, picks, unique, set, rare, magic, nodrop, items ([(item1, weight1), (item2, weight2), ...])
 itemRatios = {} # map of (version, exceptionalOrElite, classSpecific) -> (dict keys:) X, X_divisor, Y_min WHERE Y = [unique, set, rare, magic] AND X = Y + [hiquality, normal]
-uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight
-setItems = [] # list of set items: id (@items.id), name, ilvl, weight
+uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight, unique_id
+setItems = [] # list of set items: id (@items.id), name, ilvl, weight, unique_id
+
+allDrops = defaultdict(int) # (identifier, rarity) -> number of times dropped [identifier is item['id'] unless the item is unique/set in which case it is item['unique_id']]
+collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
+collectedSetItems = defaultdict(int) # item['unique_id'] -> number of times dropped
+runeCollection = defaultdict(int) # item['id'] -> number of times dropped
 
 def main():
     modDir = 'D:\\Programs\\Diablo II_modded\\Data\\global\\excel\\'
@@ -44,6 +50,57 @@ def main():
 
     for i in range(0, 5):
         dropFromSource(mon, dropType, difficulty, mf, players, nearbyPlayers)
+    
+    displayCollection()
+
+def displayCollection():
+    # Show uniques collection
+    print('1. Uniques')
+    displayUniques(collectedUniques, 'uniques.csv')
+    print()
+    print('2. Sets')
+    displayUniques(collectedSetItems, 'sets.csv')
+    print()
+    print('3. Runes (CSV)')
+    displayRunes()
+    print()
+    print('4. Raw Data (CSV)')
+    displayRaw()
+
+def displayUniques(collection, fname):
+    collectedPct = len(collection) / len(uniqueItems)
+    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection]
+    print('Collected: %d%%.' % int(collectedPct * 100))
+    if collectedPct > 0.8:
+        print('Missin:', ', '.join(missing))
+    print('\nRaw stats (CSV):')
+    dumpRawCountedDict(collection, 6, fname, lambda id: id)
+
+def displayRunes():
+    dumpRawCountedDict(runeCollection, 6, 'runes.csv', lambda id: items[id]['name'])
+
+def __displayRawHelper(tple):
+    id, rarity = tple
+    if rarity in ['unique', 'set']:
+        return '%s (%s)' % (id, rarity)
+    return '%s (%s)' % (items[id]['name'], rarity)
+
+def displayRaw():
+    dumpRawCountedDict(allDrops, 8, 'all_drops.csv', __displayRawHelper)
+
+def dumpRawCountedDict(d, breakEvery, fname, nameFn):
+    print('In %s' % fname)
+    f = open(fname, 'w')
+    f.write('sep=\\t\n')
+    keys = dict(sorted(d.items(), key=lambda item: item[1]))
+    lineBreak = 1
+    for key in keys:
+        f.write('%s: %d' % (nameFn(key), d[key]))
+        f.write('\t' if lineBreak % breakEvery != 0 else '\n')
+        lineBreak += 1
+    if (lineBreak - 1) % breakEvery != 0:
+        f.write('\n')
+    f.close()
 
 def dropFromSource(monster, dropType, difficulty, mf, players, nearbyPlayers):
     print('Drops from %s (id: %s):' % (monster['name'], monster['id']))
@@ -121,7 +178,21 @@ def dropTC(itemOrTC, mlvl, mf, players, nearbyPlayers, maxItemDrops=6, chanceMod
 def dropItem(itemStr, mlvl, TC, mf, players, nearbyPlayers, chanceModTC):
     item = items[itemStr.split(',')[0]]
     (rarity, item) = rollRarity(item, mlvl, TC, mf, chanceModTC)
-    print('dropping', item['name'], '(rarity: %s, base ilvl: %d, ilvl: %d)' % (rarity, item['ilvl'], mlvl), '[chanceModTC: %s]' % chanceModTC['id'])
+    # print('dropping', item['name'], '(rarity: %s, base ilvl: %d, ilvl: %d)' % (rarity, item['ilvl'], mlvl), '[chanceModTC: %s]' % chanceModTC['id'])
+
+    global allDrops
+    global collectedUniques
+    global collectedSetItems
+    global runeCollection
+
+    identifier = item['unique_id'] if rarity in ['unique', 'set'] else item['id']
+    allDrops[(identifier, rarity)] += 1
+    if rarity == 'unique':
+        collectedUniques[identifier] += 1
+    elif rarity == 'set':
+        collectedSetItems[identifier] += 1
+    elif item['type'] == 'rune':
+        runeCollection[item['id']] += 1
 
 def rollRarity(item, mlvl, TC, mf, chanceModTC):
     if not (TC['id'].startswith('weap') or TC['id'].startswith('armo')):
@@ -132,13 +203,11 @@ def rollRarity(item, mlvl, TC, mf, chanceModTC):
         highDurability = True
         if unique != None:
             return ('unique', unique)
-        print('Failed unique upgrade of %s' % item['id'])
     if testRarity('set', mlvl, item, mf, chanceModTC):
         setItem = upgradeToRarity(item, mlvl, 'set')
         highDurability = True
         if setItem != None:
             return ('set', setItem)
-        print('Failed set upgrade of %s' % item['id'])
     if testRarity('rare', mlvl, item, mf, chanceModTC):
         return ('rare' if not highDurability else 'rare+', item)
     if testRarity('magic', mlvl, item, mf, chanceModTC):
@@ -185,7 +254,6 @@ def upgradeToRarity(item, ilvl, rarity):
     sumOfWeights = sum([w for (_, w) in itemPool])
     if sumOfWeights <= 0:
         return None
-    print(itemPool)
 
     rng = random.randrange(0, sumOfWeights)
     offset = 0
@@ -301,9 +369,9 @@ def loadUniques(f, listToAddTo):
         if len(row['lvl']) == 0:
             continue
         if 'code' in row:
-            listToAddTo.append({'id': row['code'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity'])})
+            listToAddTo.append({'id': row['code'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity']), 'unique_id': row['index']})
         else:
-            listToAddTo.append({'id': row['item'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity'])})
+            listToAddTo.append({'id': row['item'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity']), 'unique_id': row['index']})
 
 def loadSuperUniques(f):
     global monsters
