@@ -9,8 +9,8 @@ items = {} # map of id -> (dict keys:) id, name, ilvl, type, normalid, exception
 monsters = [] # (dict keys:) id, name, tc1-4[e|(N)|(H)], level
 TCs = {} # map of id -> (dict keys:) id, group, level, picks, unique, set, rare, magic, nodrop, items ([(item1, weight1), (item2, weight2), ...])
 itemRatios = {} # map of (version, exceptionalOrElite, classSpecific) -> (dict keys:) X, X_divisor, Y_min WHERE Y = [unique, set, rare, magic] AND X = Y + [hiquality, normal]
-uniqueItems = {}
-setItems = {}
+uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight
+setItems = [] # list of set items: id (@items.id), name, ilvl, weight
 
 def main():
     modDir = 'D:\\Programs\\Diablo II_modded\\Data\\global\\excel\\'
@@ -125,22 +125,27 @@ def dropItem(itemStr, mlvl, TC, mf, players, nearbyPlayers, chanceModTC):
 
 def rollRarity(item, mlvl, TC, mf, chanceModTC):
     if not (TC['id'].startswith('weap') or TC['id'].startswith('armo')):
-        return 'normal'
+        return ('normal', item)
+    highDurability = False
     if testRarity('unique', mlvl, item, mf, chanceModTC):
-        item = upgradeToRarity(item, 'unique')
-        if item != None:
-            return ('unique', item)
+        unique = upgradeToRarity(item, mlvl, 'unique')
+        highDurability = True
+        if unique != None:
+            return ('unique', unique)
+        print('Failed unique upgrade of %s' % item['id'])
     if testRarity('set', mlvl, item, mf, chanceModTC):
-        item = upgradeToRarity(item, 'set')
-        if item != None:
-            return ('set', item)
+        setItem = upgradeToRarity(item, mlvl, 'set')
+        highDurability = True
+        if setItem != None:
+            return ('set', setItem)
+        print('Failed set upgrade of %s' % item['id'])
     if testRarity('rare', mlvl, item, mf, chanceModTC):
-        return ('rare', item)
+        return ('rare' if not highDurability else 'rare+', item)
     if testRarity('magic', mlvl, item, mf, chanceModTC):
         return ('magic', item)
     if testRarity('normal', mlvl, item, mf, chanceModTC):
         return ('normal', item)
-    return 'low'
+    return ('low', item)
 
 def testRarity(rarity, mlvl, item, mf, chanceModTC):
     upped = item['id'] in [item['exceptionalid'], item['eliteid']]
@@ -163,14 +168,31 @@ def testRarity(rarity, mlvl, item, mf, chanceModTC):
     v = max(quality_min, v) # TODO: Not sure if the game actually does this check
     v = int(v - v * chanceMod / 1024 + 0.00001)
 
+    if v <= 0:
+        return True
+
     # if rarity == 'unique':
         # print('rolling unique for %s: v is %d' % (item['name'], v))
     return random.randrange(0, v) < 128
 
-def upgradeToRarity(item, rarity):
-    if rarity not in ['unique', 'set']
+def upgradeToRarity(item, ilvl, rarity):
+    if rarity not in ['unique', 'set']:
         return item
     
+    db = uniqueItems if rarity == 'unique' else setItems
+
+    itemPool = [(i, unique['weight']) for i, unique in enumerate(db) if item['id'] == unique['id'] and unique['ilvl'] <= ilvl]
+    sumOfWeights = sum([w for (_, w) in itemPool])
+    if sumOfWeights <= 0:
+        return None
+    print(itemPool)
+
+    rng = random.randrange(0, sumOfWeights)
+    offset = 0
+    for (i, weight) in itemPool:
+        if rng < (offset + weight):
+            return db[i]
+        offset += weight
 
 def isClassSpecificType(itemType):
     classSpecifics = [
@@ -232,6 +254,11 @@ def loadAll(modDir, vanillaDir):
         loadItems(f)
     with openTxt(modDir, vanillaDir, 'Armor.txt') as f:
         loadItems(f)
+    # Load Unique & Set Items
+    with openTxt(modDir, vanillaDir, 'UniqueItems.txt') as f:
+        loadUniques(f, uniqueItems)
+    with openTxt(modDir, vanillaDir, 'SetItems.txt') as f:
+        loadUniques(f, setItems)
     # Load Monsters
     with openTxt(modDir, vanillaDir, 'MonStats.txt') as f:
         loadMonsters(f)
@@ -268,6 +295,15 @@ def loadMonsters(f):
             'tc1(H)': row['TreasureClass1(H)'], 'tc2(H)': row['TreasureClass2(H)'],
             'tc3(H)': row['TreasureClass3(H)'], 'tc4(H)': row['TreasureClass4(H)'],
             'level': intN(row['Level']), 'level(N)': intN(row['Level(N)']), 'level(H)': intN(row['Level(H)'])})
+
+def loadUniques(f, listToAddTo):
+    for row in readCSV(f):
+        if len(row['lvl']) == 0:
+            continue
+        if 'code' in row:
+            listToAddTo.append({'id': row['code'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity'])})
+        else:
+            listToAddTo.append({'id': row['item'], 'name': row['index'], 'ilvl': int(row['lvl']), 'weight': int(row['rarity'])})
 
 def loadSuperUniques(f):
     global monsters
