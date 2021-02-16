@@ -5,6 +5,7 @@ import csv
 import random
 import re
 from collections import defaultdict
+from math import prod
 
 items = {} # map of id -> (dict keys:) id, name, ilvl, type, normalid, exceptionalid, eliteid
 monsters = [] # (dict keys:) id, name, tc1-4[e|(N)|(H)], level
@@ -12,6 +13,8 @@ TCs = {} # map of id -> (dict keys:) id, group, level, picks, unique, set, rare,
 itemRatios = {} # map of (version, exceptionalOrElite, classSpecific) -> (dict keys:) X, X_divisor, Y_min WHERE Y = [unique, set, rare, magic] AND X = Y + [hiquality, normal]
 uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight, unique_id
 setItems = [] # list of set items: id (@items.id), name, ilvl, weight, unique_id
+probabilities = defaultdict(list) # (identifier, rarity) -> [probabilities of independent events] [identifier: items.id or if unique/set items.unique_id]
+monsterName = ''
 
 allDrops = defaultdict(int) # (id, rarity) -> number of times dropped [identifier is item['id']]
 collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
@@ -25,6 +28,8 @@ def main():
 
     while True:
         mon = selectDropSource()
+        global monsterName
+        monsterName = mon['name']
         difficulty = 'H'
         tmp = input('Difficulty (one of: N(ormal), NM(are), H(ell)) [default=H]: ').upper()
         if tmp in ['N', 'NM', 'H']:
@@ -58,8 +63,12 @@ def main():
         if levelStr not in mon:
             level = int(input('Monster level missing in data (TODO: dervie from area). What is the level: '))
             mon[levelStr] = level
+        
+        print('Finding theoretic probabilities for %s (%s)' % (mon['name'], difficulty))
+        findProbabilityDistribution(mon, dropType, difficulty, mf, players, nearbyPlayers)
+        displayProbabilities()
 
-        print('Doing drops for %s (%s)' % (mon['name'], difficulty))
+        print('Doing drop simulation for %s (%s)' % (mon['name'], difficulty))
         lastProgress = 0
         for i in range(0, N):
             progress = int(100 * i / N + 0.00001)
@@ -73,6 +82,125 @@ def main():
             break
     
     displayCollection()
+
+def findProbabilityDistribution(monster, dropType, difficulty, mf, players, nearbyPlayers):
+    diff = {'N':'','NM':'(N)','H':'(H)'}[difficulty]
+    tc = 'tc' + str({'n':1,'c':2,'u':3,'q':4}[dropType]) + diff
+    mlvl = monster['level' + diff]
+    analyzeTC(monster[tc], mlvl, mf, players, nearbyPlayers)
+
+def analyzeTC(itemOrTC, mlvl, mf, players, nearbyPlayers, probabilityOfTC=1, chanceModTC=None, parentTC=None):
+    # TODO: Do TCs actually get upgraded in NM/H? The TCs already seem to align with drops. E.g. if it got upgraded
+    #       then Diablo would be able to drop e.g. ilvl 86 weapon, which only Baal can (from act bosses). Unless only
+    #       the first step can be upgraded.
+    #       Maybe only for non-bosses? Similar to how bosses also do not get their level scaled by area level.
+
+    # Analyze direct item
+    if itemOrTC not in TCs:
+        analyzeItemDrop(itemOrTC, probabilityOfTC, mlvl, parentTC, mf, chanceModTC)
+        return
+
+    # Drop TreasureClass
+    tc = TCs[itemOrTC]
+
+    # Update chance modifiers
+    if tc['unique'] > 0:
+        if chanceModTC != None:
+            print('Warning: chanceModTC was overwritten. From %s to %s.' % (chanceModTC['id'], tc['id']))
+        chanceModTC = tc
+    
+    # Analyze drops for negative picks
+    picks = tc['picks']
+    if picks < 0:
+        idx = 0
+        count = 0
+        while picks < 0:
+            (item, weight) = tc['items'][idx]
+            if count >= weight:
+                idx += 1
+                count = 0
+                continue
+            analyzeTC(item, mlvl, mf, players, nearbyPlayers, probabilityOfTC, chanceModTC, tc)
+            picks += 1
+            count += 1
+        return
+
+    # Analyze drops for positive picks
+    # Calculate nodrop and expected picks
+    sumOfWeights = sum([w for (_, w) in tc['items']])
+    nodrop = tc['nodrop']
+    if nodrop > 0:
+        n = int(1 + 0.5 * (players - 1) + 0.5 * nearbyPlayers)
+        nodrop = int(sumOfWeights / (((sumOfWeights + nodrop) / nodrop)**n - 1) + 0.001)
+    sumOfWeights += nodrop
+
+    # Find probabilities of each item, and analyze it recursively
+    for (item, weight) in tc['items']:
+        perPickProbability = weight / sumOfWeights
+        dropProbability = 1 - (1 - perPickProbability)**picks # TODO: This is correct for bosses, where picks(7) > maxDrops(6)
+        analyzeTC(item, mlvl, mf, players, nearbyPlayers, dropProbability * probabilityOfTC, chanceModTC, tc)
+
+def analyzeItemDrop(itemStr, probabilityOfBaseItem, mlvl, parentTC, mf, chanceModTC):
+    global probabilities
+    item = items[itemStr.split(',')[0]]
+
+    if not canHaveRarity(item, parentTC):
+        probabilities[(item['id'], 'normal')].append(probabilityOfBaseItem)
+        return
+
+    # Find probability of each rarity
+    rarities = ['unique', 'set', 'rare', 'magic', 'normal']
+    rarityProbabilities = {}
+    chanceToGetHere = 1
+    for i, rarity in enumerate(rarities):
+        chanceOfRarity = testRarity(rarity, mlvl, item, mf, chanceModTC, True)
+        rarityProbabilities[rarity] = chanceOfRarity * chanceToGetHere
+        chanceToGetHere *= (1 - chanceOfRarity)
+    
+    analyzeAllRarityUpgrades(item, 'unique', probabilityOfBaseItem * rarityProbabilities['unique'], mlvl)
+    analyzeAllRarityUpgrades(item, 'set', probabilityOfBaseItem * rarityProbabilities['set'], mlvl)
+
+    # Write probabilities for rare or lower
+    for rarity in rarities[2:]:
+        probability = probabilityOfBaseItem * rarityProbabilities[rarity]
+        if probability > 0:
+            probabilities[(item['id'], rarity)].append(probability)
+
+def analyzeAllRarityUpgrades(item, rarity, rarityBaseProbability, ilvl):
+    db = uniqueItems if rarity == 'unique' else setItems
+
+    itemPool = [(i, unique['weight']) for i, unique in enumerate(db) if item['id'] == unique['id'] and unique['ilvl'] <= ilvl]
+    sumOfWeights = sum([w for (_, w) in itemPool])
+    if sumOfWeights <= 0:
+        return
+
+    for (i, weight) in itemPool:
+        itemProbability = weight / sumOfWeights
+        item = db[i]
+        probabilities[(item['unique_id'], rarity)].append(rarityBaseProbability * itemProbability)
+
+def __displayProbabilitiesHelper(key):
+    id, rarity = key
+    if rarity == 'unique' or rarity == 'set':
+        return '%s (%s)' % (id, rarity)
+    return '%s (%s)' % (items[id]['name'], rarity)
+
+def displayProbabilities():
+    global probabilities
+    print('Writing probabilities.')
+    # Flatten probabilities
+    for key in probabilities.keys():
+        probabilityList = probabilities[key]
+        if len(probabilityList) == 1:
+            probabilities[key] = probabilityList[0]
+        else:
+            failureChance = prod((1 - evt) for evt in probabilityList)
+            successChance = 1 - failureChance
+            probabilities[key] = successChance
+
+    # Write data
+    fileMonsterName = re.compile('[^a-zA-Z]').sub('', monsterName.replace(' ', '_'))
+    dumpRawCountedDict(probabilities, 4, fileMonsterName + '_droptable.csv', __displayProbabilitiesHelper, False)
 
 def displayCollection():
     # Show uniques collection
@@ -109,14 +237,17 @@ def __displayRawHelper(tple):
 def displayRaw():
     dumpRawCountedDict(allDrops, 6, 'all_drops.csv', __displayRawHelper)
 
-def dumpRawCountedDict(d, breakEvery, fname, nameFn):
+def dumpRawCountedDict(d, breakEvery, fname, nameFn, integer=True):
     print('In %s' % fname)
     f = open(fname, 'w')
     f.write('sep=\\t\n')
     keys = dict(sorted(d.items(), key=lambda item: item[1], reverse=True))
     lineBreak = 1
     for key in keys:
-        f.write('%s: %d' % (nameFn(key), d[key]))
+        if integer:
+            f.write('%s: %d' % (nameFn(key), d[key]))
+        else:
+            f.write('%s: %f%%' % (nameFn(key), 100 * d[key]))
         f.write('\t' if lineBreak % breakEvery != 0 else '\n')
         lineBreak += 1
     if (lineBreak - 1) % breakEvery != 0:
@@ -141,7 +272,7 @@ def dropTC(itemOrTC, mlvl, mf, players, nearbyPlayers, maxItemDrops=6, chanceMod
 
     # Drop direct item
     if itemOrTC not in TCs:
-        dropItem(itemOrTC, mlvl, parentTC, mf, players, nearbyPlayers, chanceModTC)
+        dropItem(itemOrTC, mlvl, parentTC, mf, chanceModTC)
         return maxItemDrops - 1
 
     # Drop TreasureClass
@@ -194,7 +325,7 @@ def dropTC(itemOrTC, mlvl, mf, players, nearbyPlayers, maxItemDrops=6, chanceMod
 
     return maxItemDrops
 
-def dropItem(itemStr, mlvl, TC, mf, players, nearbyPlayers, chanceModTC):
+def dropItem(itemStr, mlvl, TC, mf, chanceModTC):
     item = items[itemStr.split(',')[0]]
     (rarity, item) = rollRarity(item, mlvl, TC, mf, chanceModTC)
     # print('dropping', item['name'], '(rarity: %s, base ilvl: %d, ilvl: %d)' % (rarity, item['ilvl'], mlvl), '[chanceModTC: %s]' % chanceModTC['id'])
@@ -236,7 +367,7 @@ def rollRarity(item, mlvl, TC, mf, chanceModTC):
         return ('normal', item)
     return ('low', item)
 
-def testRarity(rarity, mlvl, item, mf, chanceModTC):
+def testRarity(rarity, mlvl, item, mf, chanceModTC, returnProbability=False):
     upped = ('exceptionalid' in item) and (item['id'] in [item['exceptionalid'], item['eliteid']])
     classSpecific = isClassSpecificType(item['type'])
     ratios = itemRatios[(True, upped, classSpecific)]
@@ -256,6 +387,12 @@ def testRarity(rarity, mlvl, item, mf, chanceModTC):
     v = int(v * 100 / (100 + emf) + 0.00001)
     v = max(quality_min, v) # TODO: Not sure if the game actually does this check
     v = int(v - v * chanceMod / 1024 + 0.00001)
+
+    if returnProbability:
+        if v <= 128:
+            return 1
+        else:
+            return 128 / v
 
     if v <= 0:
         return True
