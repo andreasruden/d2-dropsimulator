@@ -64,7 +64,7 @@ def main():
             level = int(input('Monster level missing in data (TODO: dervie from area). What is the level: '))
             mon[levelStr] = level
         
-        print('Finding theoretic probabilities for %s (%s)' % (mon['name'], difficulty))
+        print('Finding theoretic probabilities for %s (%s) (Note: these are overestimates for bosses, since picks > maxDrops)' % (mon['name'], difficulty))
         findProbabilityDistribution(mon, dropType, difficulty, mf, players, nearbyPlayers)
         displayProbabilities()
 
@@ -137,7 +137,7 @@ def analyzeTC(itemOrTC, mlvl, mf, players, nearbyPlayers, probabilityOfTC=1, cha
     # Find probabilities of each item, and analyze it recursively
     for (item, weight) in tc['items']:
         perPickProbability = weight / sumOfWeights
-        dropProbability = 1 - (1 - perPickProbability)**picks # TODO: This is correct for bosses, where picks(7) > maxDrops(6)
+        dropProbability = 1 - (1 - perPickProbability)**picks # TODO: This is not correct for bosses, where picks(7) > maxDrops(6)
         analyzeTC(item, mlvl, mf, players, nearbyPlayers, dropProbability * probabilityOfTC, chanceModTC, tc)
 
 def analyzeItemDrop(itemStr, probabilityOfBaseItem, mlvl, parentTC, mf, chanceModTC):
