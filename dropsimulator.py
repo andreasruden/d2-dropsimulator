@@ -1,9 +1,11 @@
 # Diablo 2 Drop Simulation Tool
 # TODO: Differentiate between classic and LoD
 
+import argparse
 import csv
 import random
 import re
+import sys
 from collections import defaultdict
 from math import prod
 
@@ -15,6 +17,7 @@ uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight, uni
 setItems = [] # list of set items: id (@items.id), name, ilvl, weight, unique_id
 probabilities = defaultdict(list) # (identifier, rarity) -> [probabilities of independent events] [identifier: items.id or if unique/set items.unique_id]
 monsterName = ''
+difficultyName = ''
 
 allDrops = defaultdict(int) # (id, rarity) -> number of times dropped [identifier is item['id']]
 collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
@@ -22,13 +25,54 @@ collectedSetItems = defaultdict(int) # item['unique_id'] -> number of times drop
 runeCollection = defaultdict(int) # item['id'] -> number of times dropped
 
 def main():
-    modDir = 'D:\\Programs\\Diablo II_modded\\Data\\global\\excel\\'
+    modDir = 'D:\\Diablo2Modding\\my_edited_excels\\'
     vanillaTxtDir = 'D:\\Diablo2Modding\\vanilla_excel\\'
     loadAll(modDir, vanillaTxtDir)
 
+    global monsterName
+    global difficultyName
+
+    if len(sys.argv) > 1:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('-m', type=str, help='monster id', default='baalcrab')
+        parser.add_argument('-d', type=str, help='difficulty: N(ormal), NM(are), H(ell)', default='H')
+        parser.add_argument('-t', type=str, help='dropType: n(ormal), c(hampion), u(nique), q(uest unique)', default='u')
+        parser.add_argument('-mf', type=int, default=0)
+        parser.add_argument('-p', type=int, help='/players', default=1)
+        parser.add_argument('-np', type=int, help='nearby party members', default=0)
+        parser.add_argument('-n', type=int, help='total kills', default=10000)
+        parser.add_argument('-l', type=int, help='monster level', default=0)
+        args = parser.parse_args()
+        try:
+            mon = [m for m in monsters if m['id'] == args.m][0]
+            difficulty = args.d.upper()
+            assert difficulty in ['N', 'NM', 'H']
+            dropType = args.t.lower()
+            assert dropType in ['n', 'u', 'c', 'q']
+            mf = args.mf
+            players = args.p
+            nearbyPlayers = args.np
+            N = args.n
+        except:
+            parser.print_help()
+            return
+
+        levelStr = 'level' + {'N':'','NM':'(N)','H':'(H)'}[difficulty]
+        if levelStr not in mon and args.l == 0:
+            print('Monster level missing in data, please include as part of running script.')
+            return
+        elif levelStr not in mon:
+            level = args.l
+            mon[levelStr] = level
+        
+        difficultyName = difficulty
+        monsterName = mon['name']
+        runScriptForMonster(mon, dropType, difficulty, mf, players, nearbyPlayers, N)
+        displayCollection()
+        return
+
     while True:
         mon = selectDropSource()
-        global monsterName
         monsterName = mon['name']
         difficulty = 'H'
         tmp = input('Difficulty (one of: N(ormal), NM(are), H(ell)) [default=H]: ').upper()
@@ -64,24 +108,28 @@ def main():
             level = int(input('Monster level missing in data (TODO: dervie from area). What is the level: '))
             mon[levelStr] = level
         
-        print('Finding theoretic probabilities for %s (%s) (Note: these are overestimates for bosses, since picks > maxDrops)' % (mon['name'], difficulty))
-        findProbabilityDistribution(mon, dropType, difficulty, mf, players, nearbyPlayers)
-        displayProbabilities()
-
-        print('Doing drop simulation for %s (%s)' % (mon['name'], difficulty))
-        lastProgress = 0
-        for i in range(0, N):
-            progress = int(100 * i / N + 0.00001)
-            if progress >= lastProgress + 10:
-                print('%d%% done' % progress)
-                lastProgress = progress
-            dropFromSource(mon, dropType, difficulty, mf, players, nearbyPlayers)
+        difficultyName = difficulty
+        runScriptForMonster(mon, dropType, difficulty, mf, players, nearbyPlayers, N)
         
         answer = input('Finished. Kill more monsters? (y/n) ')
         if answer != 'y':
             break
     
     displayCollection()
+
+def runScriptForMonster(mon, dropType, difficulty, mf, players, nearbyPlayers, N):
+    print('Finding theoretic probabilities for %s (%s) (Note: these are overestimates for bosses, since picks > maxDrops)' % (mon['name'], difficulty))
+    findProbabilityDistribution(mon, dropType, difficulty, mf, players, nearbyPlayers)
+    displayProbabilities()
+
+    print('Doing drop simulation for %s (%s)' % (mon['name'], difficulty))
+    lastProgress = 0
+    for i in range(0, N):
+        progress = int(100 * i / N + 0.00001)
+        if progress >= lastProgress + 10:
+            print('%d%% done' % progress)
+            lastProgress = progress
+        dropFromSource(mon, dropType, difficulty, mf, players, nearbyPlayers)
 
 def findProbabilityDistribution(monster, dropType, difficulty, mf, players, nearbyPlayers):
     diff = {'N':'','NM':'(N)','H':'(H)'}[difficulty]
@@ -200,7 +248,7 @@ def displayProbabilities():
 
     # Write data
     fileMonsterName = re.compile('[^a-zA-Z]').sub('', monsterName.replace(' ', '_'))
-    dumpRawCountedDict(probabilities, 4, fileMonsterName + '_droptable.csv', __displayProbabilitiesHelper, False)
+    dumpRawCountedDict(probabilities, 4, fileMonsterName + '_' + difficultyName + '_droptable.csv', __displayProbabilitiesHelper, False)
 
 def displayCollection():
     # Show uniques collection
