@@ -183,10 +183,10 @@ def analyzeTC(itemOrTC, mlvl, mf, players, nearbyPlayers, probabilityOfTC=1, cha
     sumOfWeights += nodrop
 
     # Find probabilities of each item, and analyze it recursively
-    for (item, weight) in tc['items']:
-        perPickProbability = weight / sumOfWeights
-        dropProbability = 1 - (1 - perPickProbability)**picks # TODO: This is not correct for bosses, where picks(7) > maxDrops(6)
-        analyzeTC(item, mlvl, mf, players, nearbyPlayers, dropProbability * probabilityOfTC, chanceModTC, tc)
+    for _ in range(picks):
+        for (item, weight) in tc['items']:
+            dropProbability = weight / sumOfWeights
+            analyzeTC(item, mlvl, mf, players, nearbyPlayers, dropProbability * probabilityOfTC, chanceModTC, tc)
 
 def analyzeItemDrop(itemStr, probabilityOfBaseItem, mlvl, parentTC, mf, chanceModTC):
     global probabilities
@@ -242,6 +242,8 @@ def displayProbabilities():
         if len(probabilityList) == 1:
             probabilities[key] = probabilityList[0]
         else:
+            if key == ('r16', 'normal'):
+                print(probabilityList)
             failureChance = prod((1 - evt) for evt in probabilityList)
             successChance = 1 - failureChance
             probabilities[key] = successChance
