@@ -259,11 +259,13 @@ def displayCollection():
     # Show uniques collection
     print('1. Uniques')
     displayUniques(collectedUniques, 'uniques.csv')
-    print('%d items rolled unique, %d of those were downgraded because of missing item base (lost %.2f%% uniques)' % (dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique)))
+    print('%d items rolled unique, %d of those were downgraded because of missing item base (lost %.2f%% uniques, %d dropped)' % (
+        dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique), dropRolledUnique - downgradedUniques))
     print()
     print('2. Sets')
     displayUniques(collectedSetItems, 'sets.csv')
-    print('%d items rolled set, %d of those were downgraded because of missing item base (lost %.2f%% set items)' % (dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet)))
+    print('%d items rolled set, %d of those were downgraded because of missing item base (lost %.2f%% set items, %d dropped)' % (
+        dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet), dropRolledSet - downgradedSets))
     print()
     print('3. Runes (CSV)')
     displayRunes()
