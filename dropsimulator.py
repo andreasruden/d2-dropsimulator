@@ -19,10 +19,12 @@ probabilities = defaultdict(list) # (identifier, rarity) -> [probabilities of in
 
 monsterName = ''
 difficultyName = ''
+monsterLevel = 0
 downgradedUniques = 0
 downgradedSets = 0
 dropRolledUnique = 0
 dropRolledSet = 0
+alwaysShowMissingCollection = False
 
 allDrops = defaultdict(int) # (id, rarity) -> number of times dropped [identifier is item['id']]
 collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
@@ -34,8 +36,13 @@ def main():
     vanillaTxtDir = 'D:\\Diablo2Modding\\vanilla_excel\\'
     loadAll(modDir, vanillaTxtDir)
 
+    # print('\n'.join('%s (weight:%d uniques:%d sets:%d)' % (items[item]['name'], weight, len([u for u in uniqueItems if item == u['id']]),
+    #     len([u for u in setItems if item == u['id']])) for (item, weight) in TCs['armo78']['items']))
+    # return
+
     global monsterName
     global difficultyName
+    global monsterLevel
 
     if len(sys.argv) > 1:
         parser = argparse.ArgumentParser()
@@ -47,6 +54,7 @@ def main():
         parser.add_argument('-np', type=int, help='nearby party members', default=0)
         parser.add_argument('-n', type=int, help='total kills', default=10000)
         parser.add_argument('-l', type=int, help='monster level', default=0)
+        parser.add_argument('--missing', action='store_true', help='always show missing uniques/sets')
         args = parser.parse_args()
         try:
             mon = [m for m in monsters if m['id'] == args.m][0]
@@ -58,6 +66,8 @@ def main():
             players = args.p
             nearbyPlayers = args.np
             N = args.n
+            global alwaysShowMissingCollection
+            alwaysShowMissingCollection = args.missing
         except:
             parser.print_help()
             return
@@ -72,6 +82,7 @@ def main():
         
         difficultyName = difficulty
         monsterName = mon['name']
+        monsterLevel = mon[levelStr]
         runScriptForMonster(mon, dropType, difficulty, mf, players, nearbyPlayers, N)
         displayCollection()
         return
@@ -112,6 +123,8 @@ def main():
         if levelStr not in mon:
             level = int(input('Monster level missing in data (TODO: dervie from area). What is the level: '))
             mon[levelStr] = level
+        
+        monsterLevel = mon[levelStr]
         
         difficultyName = difficulty
         runScriptForMonster(mon, dropType, difficulty, mf, players, nearbyPlayers, N)
@@ -255,17 +268,46 @@ def displayProbabilities():
     fileMonsterName = re.compile('[^a-zA-Z]').sub('', monsterName.replace(' ', '_'))
     dumpRawCountedDict(probabilities, 4, fileMonsterName + '_' + difficultyName + '_droptable.csv', __displayProbabilitiesHelper, False)
 
+    # displayProblemUniques(uniqueItems, 'unique')
+    # displaySortedUniques(uniqueItems, 'unique')
+
+def displayProblemUniques(lst, rarity):
+    # Print problematic uniques
+    problemPct = 1/1000
+    problemUniques = []
+    for item in lst:
+        uid = item['unique_id']
+        if (uid, rarity) in probabilities:
+            p = probabilities[(uid, rarity)]
+            ilvl = item['ilvl'] 
+            base = items[item['id']]
+            if p < problemPct and base['ilvl'] >= (monsterLevel - 30):
+                print('Warning: %s - %s (ilvl %d, base ilvl: %d) has dropchance of %f%%. E[X=# kills to drop]=%d' % (uid, base['name'], ilvl, base['ilvl'], 100 * p, int(1/p)))
+
+def displaySortedUniques(lst, rarity):
+    outLst = []
+    for item in lst:
+        uid = item['unique_id']
+        if (uid, rarity) in probabilities:
+            p = probabilities[(uid, rarity)]
+            ilvl = item['ilvl'] 
+            base = items[item['id']]
+            if base['ilvl'] >= (monsterLevel - 30):
+                outLst.append((int(1/p), item))
+    for (E, item) in sorted(outLst, reverse=True, key=lambda x: x[0]):
+        print('%s (E[X]=%d)' % (item['name'], E))
+
 def displayCollection():
     # Show uniques collection
     print('1. Uniques')
     displayUniques(collectedUniques, 'uniques.csv')
     print('%d items rolled unique, %d of those were downgraded because of missing item base (lost %.2f%% uniques, %d dropped)' % (
-        dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique), dropRolledUnique - downgradedUniques))
+        dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique) if dropRolledUnique > 0 else 0, dropRolledUnique - downgradedUniques))
     print()
     print('2. Sets')
     displayUniques(collectedSetItems, 'sets.csv')
     print('%d items rolled set, %d of those were downgraded because of missing item base (lost %.2f%% set items, %d dropped)' % (
-        dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet), dropRolledSet - downgradedSets))
+        dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet) if dropRolledSet > 0 else 0, dropRolledSet - downgradedSets))
     print()
     print('3. Runes (CSV)')
     displayRunes()
@@ -275,9 +317,9 @@ def displayCollection():
 
 def displayUniques(collection, fname):
     collectedPct = len(collection) / len(uniqueItems)
-    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection]
+    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection and item['ilvl'] > 70]
     print('Collected: %d%%.' % int(collectedPct * 100))
-    if collectedPct > 0.8:
+    if collectedPct > 0.8 or alwaysShowMissingCollection:
         print('Missing:', ', '.join(missing))
     print('\nRaw stats (CSV):')
     dumpRawCountedDict(collection, 6, fname, lambda id: id)
