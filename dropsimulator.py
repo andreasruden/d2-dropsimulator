@@ -37,7 +37,7 @@ def main():
     loadAll(modDir, vanillaTxtDir)
 
     # print('\n'.join('%s (weight:%d uniques:%d sets:%d)' % (items[item]['name'], weight, len([u for u in uniqueItems if item == u['id']]),
-    #     len([u for u in setItems if item == u['id']])) for (item, weight) in TCs['armo78']['items']))
+    #     len([u for u in setItems if item == u['id']])) for (item, weight) in TCs['weap39']['items']))
     # return
 
     global monsterName
@@ -268,8 +268,8 @@ def displayProbabilities():
     fileMonsterName = re.compile('[^a-zA-Z]').sub('', monsterName.replace(' ', '_'))
     dumpRawCountedDict(probabilities, 4, fileMonsterName + '_' + difficultyName + '_droptable.csv', __displayProbabilitiesHelper, False)
 
-    displayProblemUniques(setItems, 'set')
-    # displaySortedUniques(uniqueItems, 'unique')
+    displayProblemUniques(uniqueItems, 'unique')
+    # displaySortedUniques(setItems, 'set')
 
 def displayProblemUniques(lst, rarity):
     # Print problematic uniques
@@ -281,7 +281,8 @@ def displayProblemUniques(lst, rarity):
             p = probabilities[(uid, rarity)]
             ilvl = item['ilvl'] 
             base = items[item['id']]
-            if p < problemPct and base['ilvl'] >= (monsterLevel - 30):
+            if (p < problemPct and base['ilvl'] >= (monsterLevel - 30)
+                and base['ilvl'] <= 39): # TC level
                 print('Warning: %s - %s (ilvl %d, base ilvl: %d) has dropchance of %f%%. E[X=# kills to drop]=%d' % (uid, base['name'], ilvl, base['ilvl'], 100 * p, int(1/p)))
 
 def displaySortedUniques(lst, rarity):
