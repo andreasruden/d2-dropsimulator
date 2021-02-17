@@ -317,7 +317,7 @@ def displayCollection():
 
 def displayUniques(collection, itemPool, fname):
     collectedPct = len(collection) / len(itemPool)
-    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection]
+    missing = [item['unique_id'] for item in itemPool if item['unique_id'] not in collection]
     print('Collected: %d%%.' % int(collectedPct * 100))
     if collectedPct > 0.8 or alwaysShowMissingCollection:
         print('Missing:', ', '.join(missing))
