@@ -16,8 +16,13 @@ itemRatios = {} # map of (version, exceptionalOrElite, classSpecific) -> (dict k
 uniqueItems = [] # list of unique items: id (@items.id), name, ilvl, weight, unique_id
 setItems = [] # list of set items: id (@items.id), name, ilvl, weight, unique_id
 probabilities = defaultdict(list) # (identifier, rarity) -> [probabilities of independent events] [identifier: items.id or if unique/set items.unique_id]
+
 monsterName = ''
 difficultyName = ''
+downgradedUniques = 0
+downgradedSets = 0
+dropRolledUnique = 0
+dropRolledSet = 0
 
 allDrops = defaultdict(int) # (id, rarity) -> number of times dropped [identifier is item['id']]
 collectedUniques = defaultdict(int) # item['unique_id'] -> number of times dropped
@@ -242,8 +247,6 @@ def displayProbabilities():
         if len(probabilityList) == 1:
             probabilities[key] = probabilityList[0]
         else:
-            if key == ('r16', 'normal'):
-                print(probabilityList)
             failureChance = prod((1 - evt) for evt in probabilityList)
             successChance = 1 - failureChance
             probabilities[key] = successChance
@@ -256,9 +259,11 @@ def displayCollection():
     # Show uniques collection
     print('1. Uniques')
     displayUniques(collectedUniques, 'uniques.csv')
+    print('%d items rolled unique, %d of those were downgraded because of missing item base (lost %.2f%% uniques)' % (dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique)))
     print()
     print('2. Sets')
     displayUniques(collectedSetItems, 'sets.csv')
+    print('%d items rolled set, %d of those were downgraded because of missing item base (lost %.2f%% set items)' % (dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet)))
     print()
     print('3. Runes (CSV)')
     displayRunes()
@@ -400,15 +405,25 @@ def rollRarity(item, mlvl, TC, mf, chanceModTC):
         return ('normal', item)
     highDurability = False
     if testRarity('unique', mlvl, item, mf, chanceModTC):
+        global dropRolledUnique
+        dropRolledUnique += 1
         unique = upgradeToRarity(item, mlvl, 'unique')
         highDurability = True
         if unique != None:
             return ('unique', unique)
+        else:
+            global downgradedUniques
+            downgradedUniques += 1
     if testRarity('set', mlvl, item, mf, chanceModTC):
+        global dropRolledSet
+        dropRolledSet += 1
         setItem = upgradeToRarity(item, mlvl, 'set')
         highDurability = True
         if setItem != None:
             return ('set', setItem)
+        else:
+            global downgradedSets
+            downgradedSets += 1
     if testRarity('rare', mlvl, item, mf, chanceModTC):
         return ('rare' if not highDurability else 'rare+', item)
     if testRarity('magic', mlvl, item, mf, chanceModTC):
