@@ -268,7 +268,7 @@ def displayProbabilities():
     fileMonsterName = re.compile('[^a-zA-Z]').sub('', monsterName.replace(' ', '_'))
     dumpRawCountedDict(probabilities, 4, fileMonsterName + '_' + difficultyName + '_droptable.csv', __displayProbabilitiesHelper, False)
 
-    # displayProblemUniques(uniqueItems, 'unique')
+    displayProblemUniques(setItems, 'set')
     # displaySortedUniques(uniqueItems, 'unique')
 
 def displayProblemUniques(lst, rarity):
@@ -300,12 +300,12 @@ def displaySortedUniques(lst, rarity):
 def displayCollection():
     # Show uniques collection
     print('1. Uniques')
-    displayUniques(collectedUniques, 'uniques.csv')
+    displayUniques(collectedUniques, uniqueItems, 'uniques.csv')
     print('%d items rolled unique, %d of those were downgraded because of missing item base (lost %.2f%% uniques, %d dropped)' % (
         dropRolledUnique, downgradedUniques, 100 * (downgradedUniques/dropRolledUnique) if dropRolledUnique > 0 else 0, dropRolledUnique - downgradedUniques))
     print()
     print('2. Sets')
-    displayUniques(collectedSetItems, 'sets.csv')
+    displayUniques(collectedSetItems, setItems, 'sets.csv')
     print('%d items rolled set, %d of those were downgraded because of missing item base (lost %.2f%% set items, %d dropped)' % (
         dropRolledSet, downgradedSets, 100 * (downgradedSets/dropRolledSet) if dropRolledSet > 0 else 0, dropRolledSet - downgradedSets))
     print()
@@ -315,9 +315,9 @@ def displayCollection():
     print('4. Raw Data (CSV)')
     displayRaw()
 
-def displayUniques(collection, fname):
-    collectedPct = len(collection) / len(uniqueItems)
-    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection and item['ilvl'] > 70]
+def displayUniques(collection, itemPool, fname):
+    collectedPct = len(collection) / len(itemPool)
+    missing = [item['unique_id'] for item in uniqueItems if item['unique_id'] not in collection]
     print('Collected: %d%%.' % int(collectedPct * 100))
     if collectedPct > 0.8 or alwaysShowMissingCollection:
         print('Missing:', ', '.join(missing))
@@ -483,7 +483,7 @@ def testRarity(rarity, mlvl, item, mf, chanceModTC, returnProbability=False):
     quality = ratios[rarity]
     quality_divisor = ratios[rarity + '_divisor']
     quality_min = (ratios[rarity + '_min'] if (rarity + '_min') in ratios else 0)
-    chanceMod = chanceModTC[rarity] if rarity in chanceModTC else 0
+    chanceMod = chanceModTC[rarity] if (chanceModTC != None and rarity in chanceModTC) else 0
 
     emf = mf
     if rarity in ['unique', 'set', 'rare']:
